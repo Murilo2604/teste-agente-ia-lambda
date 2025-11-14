@@ -262,7 +262,9 @@ def handler(event, context):
     
     print(f"📦 Using S3 bucket: {bucket_name}")
     
-    # Inicializa o S3Provider (usará credenciais do IAM Role do Lambda)
+    # Inicializa o S3Provider
+    # Autenticação: Usa AWS_ACCESS_KEY_ID e AWS_SECRET_ACCESS_KEY se disponíveis,
+    # caso contrário usa IAM Role do Lambda (default credential chain)
     s3_provider = S3Provider()
     
     for record in event['Records']:
@@ -553,6 +555,7 @@ def main(pdf_path, bucket_name: str = None, job_id: str = None):
     
     if bucket_name:
         try:
+            # S3Provider usa credenciais de ambiente ou IAM role automaticamente
             s3_provider = S3Provider()
             s3_cutout_paths = upload_cutouts_to_s3(
                 s3_provider=s3_provider,

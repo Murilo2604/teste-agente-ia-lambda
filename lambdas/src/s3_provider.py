@@ -25,44 +25,53 @@ class S3Provider:
         """
         Initialize the S3Provider with a boto3 S3 client.
         
-        The client will use the default AWS credentials and region configuration
-        from the environment or AWS configuration files.
+        Authentication priority:
+        1. Explicit credentials passed as parameter
+        2. Environment variables (AWS_ACCESS_KEY_ID, AWS_SECRET_ACCESS_KEY, AWS_REGION)
+        3. Default AWS credentials chain (IAM role, instance profile, etc.)
+        
+        Args:
+            credentials: Optional dict with keys:
+                - aws_access_key_id: AWS access key ID
+                - aws_secret_access_key: AWS secret access key
+                - region_name: AWS region (defaults to AWS_REGION env var or us-east-1)
         """
+        # Build credentials dict from parameter or environment
         if credentials is None:
-            credentials = {
-                'aws_access_key_id':os.getenv('AWS_ACCESS_KEY_ID'),
-                'aws_secret_access_key':os.getenv('AWS_SECRET_ACCESS_KEY'),
-                'region_name':os.getenv('AWS_REGION')
-            }
-
-        aws_access_key_id = credentials.get('aws_access_key_id')
-        aws_secret_access_key = credentials.get('aws_secret_access_key')
-        region_name = credentials.get('region_name')
-
-        # # Localstack support
-        # endpoint_url = credentials.get('endpoint_url')
-        # # Normalize empty strings to None (boto3 treats empty endpoint as invalid)
-        # if not endpoint_url:
-        #     endpoint_url = None
-
-        # # Normalize path-style flag: accept truthy strings or default to True when endpoint_url is provided
-        # raw_use_path_style = credentials.get('use_path_style')
-        # if raw_use_path_style is None:
-        #     use_path_style = bool(endpoint_url)
-        # else:
-        #     use_path_style = str(raw_use_path_style).strip().lower() in {"1", "true", "yes", "y", "on"}
-
-        # config: Optional[Config] = None
-        # if use_path_style:
+            credentials = {}
+        
+        # Get credentials from environment if not provided explicitly
+        aws_access_key_id = os.getenv('CUSTOM_AWS_ACCESS_KEY_ID')
+        aws_secret_access_key = os.getenv('CUSTOM_AWS_SECRET_ACCESS_KEY')
+        region_name = os.getenv('CUSTOM_AWS_DEFAULT_REGION')
+        
+        # Build boto3 client parameters
+        client_params = {}
+        
+        # Only include access key and secret if both are provided
+        # If not provided, boto3 will use default credential chain (IAM role, etc.)
+        if aws_access_key_id and aws_secret_access_key:
+            client_params['aws_access_key_id'] = aws_access_key_id
+            client_params['aws_secret_access_key'] = aws_secret_access_key
+            print("🔑 Using explicit AWS credentials (access key + secret key)")
+        else:
+            print("🔐 Using default AWS credential chain (IAM role/profile)")
+        
+        # Include region if specified
+        if region_name:
+            client_params['region_name'] = region_name
+        
+        # Localstack support (commented out, but structure preserved)
+        # endpoint_url = credentials.get('endpoint_url') or os.getenv('S3_ENDPOINT')
+        # if endpoint_url:
+        #     client_params['endpoint_url'] = endpoint_url
+        #     # Use path-style addressing for Localstack
         #     config = Config(s3={'addressing_style': 'path'})
+        #     client_params['config'] = config
 
         try:
-          self.s3_client = boto3.client(
-            's3',
-            aws_access_key_id=aws_access_key_id,
-            aws_secret_access_key=aws_secret_access_key,
-            region_name=region_name
-          )
+            print('client_params', client_params)
+            self.s3_client = boto3.client('s3', **client_params)
         except Exception as e:
             raise ValueError(f"Failed to initialize S3 client: {e}")
 
