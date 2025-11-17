@@ -6,6 +6,11 @@ from typing import Optional, Union, Dict, Any
 import os
 import pandas as pd
 import dotenv
+import logging
+
+# Configure logger
+logger = logging.getLogger(__name__)
+logger.setLevel(logging.INFO)
 
 env = dotenv.load_dotenv()
 
@@ -36,14 +41,42 @@ class S3Provider:
                 - aws_secret_access_key: AWS secret access key
                 - region_name: AWS region (defaults to AWS_REGION env var or us-east-1)
         """
+        logger.info("🔧 Initializing S3Provider...")
+        
         # Build credentials dict from parameter or environment
         if credentials is None:
             credentials = {}
+            logger.info("📝 No explicit credentials dict passed to constructor")
+        else:
+            logger.info("📝 Explicit credentials dict provided to constructor")
         
         # Get credentials from environment if not provided explicitly
         aws_access_key_id = os.getenv('CUSTOM_AWS_ACCESS_KEY_ID')
         aws_secret_access_key = os.getenv('CUSTOM_AWS_SECRET_ACCESS_KEY')
         region_name = os.getenv('CUSTOM_AWS_DEFAULT_REGION')
+        
+        # Log credential detection status (with masking for security)
+        logger.info("🔍 Checking environment variables:")
+        logger.info(f"   - CUSTOM_AWS_ACCESS_KEY_ID: {'✓ Found' if aws_access_key_id else '✗ Not found'}")
+        if aws_access_key_id:
+            masked_key = f"{aws_access_key_id[:4]}...{aws_access_key_id[-4:]}" if len(aws_access_key_id) > 8 else "****"
+            logger.info(f"   - Access Key ID (masked): {masked_key}")
+        logger.info(f"   - CUSTOM_AWS_SECRET_ACCESS_KEY: {'✓ Found' if aws_secret_access_key else '✗ Not found'}")
+        if aws_secret_access_key:
+            logger.info(f"   - Secret Key (masked): ****{aws_secret_access_key[-4:]}")
+        logger.info(f"   - CUSTOM_AWS_DEFAULT_REGION: {region_name if region_name else '✗ Not found'}")
+        
+        # Also check standard AWS environment variables
+        standard_access_key = os.getenv('AWS_ACCESS_KEY_ID')
+        standard_secret_key = os.getenv('AWS_SECRET_ACCESS_KEY')
+        standard_region = os.getenv('AWS_DEFAULT_REGION')
+        aws_session_token = os.getenv('AWS_SESSION_TOKEN')
+        
+        logger.info("🔍 Checking standard AWS environment variables:")
+        logger.info(f"   - AWS_ACCESS_KEY_ID: {'✓ Found' if standard_access_key else '✗ Not found'}")
+        logger.info(f"   - AWS_SECRET_ACCESS_KEY: {'✓ Found' if standard_secret_key else '✗ Not found'}")
+        logger.info(f"   - AWS_DEFAULT_REGION: {standard_region if standard_region else '✗ Not found'}")
+        logger.info(f"   - AWS_SESSION_TOKEN: {'✓ Found (IAM Role/STS)' if aws_session_token else '✗ Not found'}")
         
         # Build boto3 client parameters
         client_params = {}
@@ -53,13 +86,16 @@ class S3Provider:
         if aws_access_key_id and aws_secret_access_key:
             client_params['aws_access_key_id'] = aws_access_key_id
             client_params['aws_secret_access_key'] = aws_secret_access_key
-            print("🔑 Using explicit AWS credentials (access key + secret key)")
+            logger.info("🔑 Using explicit AWS credentials from CUSTOM_* environment variables")
         else:
-            print("🔐 Using default AWS credential chain (IAM role/profile)")
+            logger.info("🔐 Using default AWS credential chain (IAM role/profile/environment)")
         
         # Include region if specified
         if region_name:
             client_params['region_name'] = region_name
+            logger.info(f"🌍 Using region: {region_name}")
+        else:
+            logger.info(f"🌍 No custom region specified, boto3 will use default (standard env: {standard_region or 'not set'})")
         
         # Localstack support (commented out, but structure preserved)
         # endpoint_url = credentials.get('endpoint_url') or os.getenv('S3_ENDPOINT')
@@ -70,9 +106,33 @@ class S3Provider:
         #     client_params['config'] = config
 
         try:
-            print('client_params', client_params)
+            # Log sanitized client params (remove sensitive data)
+            sanitized_params = {}
+            for key, value in client_params.items():
+                if key == 'aws_access_key_id':
+                    sanitized_params[key] = f"{value[:4]}...{value[-4:]}" if len(value) > 8 else "****"
+                elif key == 'aws_secret_access_key':
+                    sanitized_params[key] = f"****{value[-4:]}"
+                else:
+                    sanitized_params[key] = value
+            logger.info(f"⚙️ Client params (sanitized): {sanitized_params}")
+            
             self.s3_client = boto3.client('s3', **client_params)
+            
+            # Try to get caller identity for additional debugging
+            try:
+                sts_client = boto3.client('sts', **client_params)
+                identity = sts_client.get_caller_identity()
+                logger.info(f"✅ Successfully initialized S3 client")
+                logger.info(f"   - Account: {identity.get('Account', 'N/A')}")
+                logger.info(f"   - UserId: {identity.get('UserId', 'N/A')}")
+                logger.info(f"   - ARN: {identity.get('Arn', 'N/A')}")
+            except Exception as sts_error:
+                logger.warning(f"⚠️ Could not get caller identity (STS): {sts_error}")
+                logger.info("✅ S3 client initialized (caller identity check failed)")
+                
         except Exception as e:
+            logger.error(f"❌ Failed to initialize S3 client: {e}")
             raise ValueError(f"Failed to initialize S3 client: {e}")
 
     def get_object(self, bucket_name: str, key: str) -> Dict[str, Any]:
@@ -178,15 +238,60 @@ class S3Provider:
             >>> content = buffer.read().decode('utf-8')
             >>> buffer.seek(0)  # Reset position for another read
         """
-        # Get the object from S3
-        response = self.s3_client.get_object(Bucket=bucket_name, Key=key)
-        file_content = response['Body'].read()
+        logger.info("📥 Starting download_file operation")
+        logger.info(f"   - Bucket: {bucket_name}")
+        logger.info(f"   - Key: {key}")
         
-        # Create a BytesIO buffer
-        buffer = BytesIO(file_content)
-        buffer.seek(0)  # Reset position to beginning
-        
-        return buffer
+        try:
+            # Get the object from S3
+            logger.info("🔄 Calling s3_client.get_object()...")
+            response = self.s3_client.get_object(Bucket=bucket_name, Key=key)
+            
+            # Log metadata from response
+            content_length = response.get('ContentLength', 0)
+            content_type = response.get('ContentType', 'unknown')
+            last_modified = response.get('LastModified', 'unknown')
+            
+            logger.info(f"✅ Successfully retrieved object metadata:")
+            logger.info(f"   - Content-Length: {content_length:,} bytes ({content_length / 1024 / 1024:.2f} MB)")
+            logger.info(f"   - Content-Type: {content_type}")
+            logger.info(f"   - Last-Modified: {last_modified}")
+            logger.info(f"   - ETag: {response.get('ETag', 'unknown')}")
+            
+            # Read the file content
+            logger.info("📖 Reading file content from response body...")
+            file_content = response['Body'].read()
+            actual_size = len(file_content)
+            logger.info(f"✅ Successfully read {actual_size:,} bytes from response body")
+            
+            if actual_size != content_length:
+                logger.warning(f"⚠️ Size mismatch! Expected {content_length:,} bytes, got {actual_size:,} bytes")
+            
+            # Create a BytesIO buffer
+            logger.info("💾 Creating BytesIO buffer...")
+            buffer = BytesIO(file_content)
+            buffer.seek(0)  # Reset position to beginning
+            logger.info(f"✅ Buffer created successfully (position: {buffer.tell()}, size: {len(buffer.getvalue()):,} bytes)")
+            
+            logger.info("✅ download_file operation completed successfully")
+            return buffer
+            
+        except ClientError as e:
+            error_code = e.response.get('Error', {}).get('Code', 'Unknown')
+            error_message = e.response.get('Error', {}).get('Message', str(e))
+            logger.error(f"❌ ClientError during download_file:")
+            logger.error(f"   - Error Code: {error_code}")
+            logger.error(f"   - Error Message: {error_message}")
+            logger.error(f"   - Bucket: {bucket_name}")
+            logger.error(f"   - Key: {key}")
+            raise
+        except Exception as e:
+            logger.error(f"❌ Unexpected error during download_file:")
+            logger.error(f"   - Error Type: {type(e).__name__}")
+            logger.error(f"   - Error Message: {str(e)}")
+            logger.error(f"   - Bucket: {bucket_name}")
+            logger.error(f"   - Key: {key}")
+            raise
     
     def download_file_to_path(self, bucket_name: str, key: str, local_path: str) -> str:
         """
@@ -212,13 +317,52 @@ class S3Provider:
             >>> s3_provider.download_file_to_path('my-bucket', 'data/file.pdf', '/tmp/file.pdf')
             '/tmp/file.pdf'
         """
-        # Create directory if it doesn't exist
-        os.makedirs(os.path.dirname(local_path) if os.path.dirname(local_path) else '.', exist_ok=True)
+        logger.info("📥 Starting download_file_to_path operation")
+        logger.info(f"   - Bucket: {bucket_name}")
+        logger.info(f"   - Key: {key}")
+        logger.info(f"   - Local Path: {local_path}")
         
-        # Download file
-        self.s3_client.download_file(bucket_name, key, local_path)
-        
-        return local_path
+        try:
+            # Create directory if it doesn't exist
+            directory = os.path.dirname(local_path) if os.path.dirname(local_path) else '.'
+            logger.info(f"📁 Ensuring directory exists: {directory}")
+            os.makedirs(directory, exist_ok=True)
+            logger.info(f"✅ Directory ready")
+            
+            # Download file
+            logger.info("🔄 Calling s3_client.download_file()...")
+            self.s3_client.download_file(bucket_name, key, local_path)
+            
+            # Verify file was created and get size
+            if os.path.exists(local_path):
+                file_size = os.path.getsize(local_path)
+                logger.info(f"✅ File downloaded successfully:")
+                logger.info(f"   - Path: {local_path}")
+                logger.info(f"   - Size: {file_size:,} bytes ({file_size / 1024 / 1024:.2f} MB)")
+            else:
+                logger.error("❌ File not found after download operation")
+            
+            logger.info("✅ download_file_to_path operation completed successfully")
+            return local_path
+            
+        except ClientError as e:
+            error_code = e.response.get('Error', {}).get('Code', 'Unknown')
+            error_message = e.response.get('Error', {}).get('Message', str(e))
+            logger.error(f"❌ ClientError during download_file_to_path:")
+            logger.error(f"   - Error Code: {error_code}")
+            logger.error(f"   - Error Message: {error_message}")
+            logger.error(f"   - Bucket: {bucket_name}")
+            logger.error(f"   - Key: {key}")
+            logger.error(f"   - Local Path: {local_path}")
+            raise
+        except Exception as e:
+            logger.error(f"❌ Unexpected error during download_file_to_path:")
+            logger.error(f"   - Error Type: {type(e).__name__}")
+            logger.error(f"   - Error Message: {str(e)}")
+            logger.error(f"   - Bucket: {bucket_name}")
+            logger.error(f"   - Key: {key}")
+            logger.error(f"   - Local Path: {local_path}")
+            raise
     
     def upload_file_from_path(self, local_path: str, bucket_name: str, key: str, extra_args: Optional[dict] = None) -> str:
         """
@@ -307,8 +451,45 @@ class S3Provider:
             >>> file_bytes = s3_provider.get_file_as_bytes('my-bucket', 'data/file.bin')
             >>> # Process bytes directly
         """
-        response = self.s3_client.get_object(Bucket=bucket_name, Key=key)
-        return response['Body'].read()
+        logger.info("📥 Starting get_file_as_bytes operation")
+        logger.info(f"   - Bucket: {bucket_name}")
+        logger.info(f"   - Key: {key}")
+        
+        try:
+            logger.info("🔄 Calling s3_client.get_object()...")
+            response = self.s3_client.get_object(Bucket=bucket_name, Key=key)
+            
+            # Log metadata
+            content_length = response.get('ContentLength', 0)
+            logger.info(f"✅ Object retrieved, expected size: {content_length:,} bytes ({content_length / 1024 / 1024:.2f} MB)")
+            
+            logger.info("📖 Reading bytes from response body...")
+            file_bytes = response['Body'].read()
+            actual_size = len(file_bytes)
+            
+            logger.info(f"✅ Successfully read {actual_size:,} bytes")
+            if actual_size != content_length:
+                logger.warning(f"⚠️ Size mismatch! Expected {content_length:,} bytes, got {actual_size:,} bytes")
+            
+            logger.info("✅ get_file_as_bytes operation completed successfully")
+            return file_bytes
+            
+        except ClientError as e:
+            error_code = e.response.get('Error', {}).get('Code', 'Unknown')
+            error_message = e.response.get('Error', {}).get('Message', str(e))
+            logger.error(f"❌ ClientError during get_file_as_bytes:")
+            logger.error(f"   - Error Code: {error_code}")
+            logger.error(f"   - Error Message: {error_message}")
+            logger.error(f"   - Bucket: {bucket_name}")
+            logger.error(f"   - Key: {key}")
+            raise
+        except Exception as e:
+            logger.error(f"❌ Unexpected error during get_file_as_bytes:")
+            logger.error(f"   - Error Type: {type(e).__name__}")
+            logger.error(f"   - Error Message: {str(e)}")
+            logger.error(f"   - Bucket: {bucket_name}")
+            logger.error(f"   - Key: {key}")
+            raise
     
     def read_parquet_to_df(self, bucket_name: str, key: str, **kwargs) -> pd.DataFrame:
         """
