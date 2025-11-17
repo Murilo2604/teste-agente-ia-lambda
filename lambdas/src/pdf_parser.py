@@ -1,5 +1,7 @@
 """PDF parsing module using Docling to extract structured chunks with coordinates."""
 
+import os
+
 
 def parse_pdf_to_chunks(pdf_path):
     """
@@ -11,6 +13,28 @@ def parse_pdf_to_chunks(pdf_path):
     Returns:
         List of dictionaries containing text, page, bbox, element_type, and chunk_id
     """
+    # Configure all ML frameworks to use /tmp for model storage (Lambda-safe)
+    # RapidOCR configuration
+    os.environ.setdefault('RAPIDOCR_HOME', '/tmp/rapidocr_models')
+    
+    # PyTorch configuration
+    os.environ.setdefault('TORCH_HOME', '/tmp/torch')
+    
+    # HuggingFace/Transformers configuration
+    os.environ.setdefault('HF_HOME', '/tmp/huggingface')
+    os.environ.setdefault('TRANSFORMERS_CACHE', '/tmp/transformers')
+    os.environ.setdefault('HUGGINGFACE_HUB_CACHE', '/tmp/huggingface/hub')
+    
+    # Docling-specific configuration
+    os.environ.setdefault('DOCLING_SERVE_ARTIFACTS_PATH', '/tmp/docling_models')
+    os.environ.setdefault('DOCLING_SERVE_SCRATCH_PATH', '/tmp/docling_scratch')
+    
+    # Generic cache directories
+    os.environ.setdefault('XDG_CACHE_HOME', '/tmp/.cache')
+    
+    # Sentence Transformers (if used by Docling)
+    os.environ.setdefault('SENTENCE_TRANSFORMERS_HOME', '/tmp/sentence_transformers')
+    
     # Lazy import to avoid loading heavy ML dependencies during Lambda initialization
     from docling.document_converter import DocumentConverter
     

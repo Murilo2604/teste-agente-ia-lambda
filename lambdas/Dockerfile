@@ -40,10 +40,25 @@ LABEL maintainer="GCB AI Team" \
 ENV LAMBDA_TASK_ROOT=/var/task
 WORKDIR ${LAMBDA_TASK_ROOT}
 
-# Variáveis de ambiente
+# Variáveis de ambiente para Lambda e ML frameworks
 ENV PYTHONDONTWRITEBYTECODE=1 \
     PYTHONUNBUFFERED=1 \
-    HOME=/tmp
+    HOME=/tmp \
+    # RapidOCR configuration
+    RAPIDOCR_HOME=/tmp/rapidocr_models \
+    # PyTorch configuration
+    TORCH_HOME=/tmp/torch \
+    # HuggingFace/Transformers configuration
+    HF_HOME=/tmp/huggingface \
+    TRANSFORMERS_CACHE=/tmp/transformers \
+    HUGGINGFACE_HUB_CACHE=/tmp/huggingface/hub \
+    # Docling-specific configuration
+    DOCLING_SERVE_ARTIFACTS_PATH=/tmp/docling_models \
+    DOCLING_SERVE_SCRATCH_PATH=/tmp/docling_scratch \
+    # Generic cache directories
+    XDG_CACHE_HOME=/tmp/.cache \
+    # Sentence Transformers
+    SENTENCE_TRANSFORMERS_HOME=/tmp/sentence_transformers
 
 # Instala apenas libs necessárias pro runtime
 RUN apt-get update && apt-get install -y --no-install-recommends \
@@ -75,15 +90,36 @@ COPY --from=builder /deps /usr/local/lib/python3.12/site-packages
 COPY src/ ${LAMBDA_TASK_ROOT}/
 
 # Cria diretórios de runtime (Lambda requer diretórios graváveis em /tmp)
-RUN mkdir -p /tmp/output /tmp/docling_models && \
-    chmod -R 777 /tmp/output /tmp/docling_models
+RUN mkdir -p /tmp/output \
+             /tmp/docling_models \
+             /tmp/docling_scratch \
+             /tmp/rapidocr_models \
+             /tmp/torch \
+             /tmp/huggingface \
+             /tmp/huggingface/hub \
+             /tmp/transformers \
+             /tmp/.cache \
+             /tmp/sentence_transformers && \
+    chmod -R 777 /tmp/output \
+                 /tmp/docling_models \
+                 /tmp/docling_scratch \
+                 /tmp/rapidocr_models \
+                 /tmp/torch \
+                 /tmp/huggingface \
+                 /tmp/transformers \
+                 /tmp/.cache \
+                 /tmp/sentence_transformers
 
-# Copia o script de entrada
-COPY entry.sh /entry.sh
-RUN chmod +x /entry.sh
+# Pre-configure RapidOCR to use /tmp for model storage
+# Replace the read-only models directory with a symlink to /tmp
+RUN mkdir -p /tmp/rapidocr_models && \
+    if [ -d "/usr/local/lib/python3.12/site-packages/rapidocr/models" ]; then \
+        rm -rf /usr/local/lib/python3.12/site-packages/rapidocr/models && \
+        ln -s /tmp/rapidocr_models /usr/local/lib/python3.12/site-packages/rapidocr/models; \
+    fi
 
-# ENTRYPOINT usa script que detecta se está rodando local ou na AWS
-ENTRYPOINT ["/entry.sh"]
+# ENTRYPOINT usa diretamente o AWS Lambda Runtime Interface Client
+ENTRYPOINT ["python", "-m", "awslambdaric"]
 
 # CMD especifica o handler no formato módulo.função
 CMD ["main.handler"]
