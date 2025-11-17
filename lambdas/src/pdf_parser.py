@@ -13,6 +13,27 @@ def parse_pdf_to_chunks(pdf_path):
     Returns:
         List of dictionaries containing text, page, bbox, element_type, and chunk_id
     """
+    # Create all necessary cache directories in /tmp (Lambda runtime requirement)
+    # These must be created at runtime since Lambda provides a fresh /tmp each time
+    # Note: The Dockerfile creates a symlink from rapidocr package dir to /tmp/rapidocr_models
+    cache_dirs = [
+        '/tmp/output',
+        '/tmp/rapidocr_models',  # RapidOCR models (symlinked from package dir)
+        '/tmp/torch',
+        '/tmp/huggingface',
+        '/tmp/huggingface/hub',
+        '/tmp/transformers',
+        '/tmp/docling_models',
+        '/tmp/docling_scratch',
+        '/tmp/.cache',
+        '/tmp/sentence_transformers',
+    ]
+    
+    print("📁 Creating cache directories in /tmp...")
+    for cache_dir in cache_dirs:
+        os.makedirs(cache_dir, exist_ok=True)
+    print(f"✓ Created {len(cache_dirs)} cache directories")
+    
     # Configure all ML frameworks to use /tmp for model storage (Lambda-safe)
     # RapidOCR configuration
     os.environ.setdefault('RAPIDOCR_HOME', '/tmp/rapidocr_models')

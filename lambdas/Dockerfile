@@ -89,34 +89,14 @@ COPY --from=builder /deps /usr/local/lib/python3.12/site-packages
 # Copia apenas o código-fonte necessário
 COPY src/ ${LAMBDA_TASK_ROOT}/
 
-# Cria diretórios de runtime (Lambda requer diretórios graváveis em /tmp)
-RUN mkdir -p /tmp/output \
-             /tmp/docling_models \
-             /tmp/docling_scratch \
-             /tmp/rapidocr_models \
-             /tmp/torch \
-             /tmp/huggingface \
-             /tmp/huggingface/hub \
-             /tmp/transformers \
-             /tmp/.cache \
-             /tmp/sentence_transformers && \
-    chmod -R 777 /tmp/output \
-                 /tmp/docling_models \
-                 /tmp/docling_scratch \
-                 /tmp/rapidocr_models \
-                 /tmp/torch \
-                 /tmp/huggingface \
-                 /tmp/transformers \
-                 /tmp/.cache \
-                 /tmp/sentence_transformers
-
-# Pre-configure RapidOCR to use /tmp for model storage
-# Replace the read-only models directory with a symlink to /tmp
-RUN mkdir -p /tmp/rapidocr_models && \
-    if [ -d "/usr/local/lib/python3.12/site-packages/rapidocr/models" ]; then \
-        rm -rf /usr/local/lib/python3.12/site-packages/rapidocr/models && \
-        ln -s /tmp/rapidocr_models /usr/local/lib/python3.12/site-packages/rapidocr/models; \
-    fi
+# Create symlink for RapidOCR models to point to /tmp (must be done at build time)
+# RapidOCR hardcodes its model path and doesn't respect environment variables
+# The symlink target (/tmp/rapidocr_models) will be created at runtime by pdf_parser.py
+RUN if [ -d "/usr/local/lib/python3.12/site-packages/rapidocr/models" ]; then \
+        rm -rf /usr/local/lib/python3.12/site-packages/rapidocr/models; \
+    fi && \
+    ln -sf /tmp/rapidocr_models /usr/local/lib/python3.12/site-packages/rapidocr/models && \
+    echo "✓ RapidOCR models symlink created"
 
 # ENTRYPOINT usa diretamente o AWS Lambda Runtime Interface Client
 ENTRYPOINT ["python", "-m", "awslambdaric"]
