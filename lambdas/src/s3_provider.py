@@ -527,3 +527,4 @@ class S3Provider:
         
         buffer = self.download_file(bucket_name, key)
         return pd.read_parquet(buffer, **kwargs)
+        

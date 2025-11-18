@@ -77,8 +77,8 @@ def upload_cutouts_to_s3(
                 ext = os.path.splitext(local_path)[1]
                 
                 # Create new S3 key structure:
-                # contracts/{job_id}/unit_{index}/{fieldName}.png
-                s3_key = f"contracts/{job_id}/unit_{unit_index}/{field_name}{ext}"
+                # contracts/{job_id}/images/unit_{index}/{fieldName}.png
+                s3_key = f"contracts/{job_id}/images/unit_{unit_index}/{field_name}{ext}"
                 
                 # Determine content type based on file extension
                 content_type_map = {
@@ -107,6 +107,85 @@ def upload_cutouts_to_s3(
     
     print(f"✓ Uploaded {total_uploaded} cutout images to S3")
     return s3_cutout_paths
+
+
+def upload_result_file_to_s3(
+    s3_provider: S3Provider,
+    local_path: str,
+    bucket_name: str,
+    job_id: str,
+    filename: str,
+    content_type: str = 'application/json'
+) -> str:
+    """
+    Upload a result file to S3 with proper error handling.
+    
+    Args:
+        s3_provider: S3Provider instance
+        local_path: Path to the local file
+        bucket_name: S3 bucket name
+        job_id: Unique job identifier
+        filename: Filename to use in S3 (e.g., 'document_chunks.json')
+        content_type: MIME type of the file
+        
+    Returns:
+        S3 URI of the uploaded file
+        
+    Raises:
+        Exception: If upload fails
+    """
+    try:
+        s3_key = f"contracts/{job_id}/{filename}"
+        
+        s3_uri = s3_provider.upload_file_from_path(
+            local_path=local_path,
+            bucket_name=bucket_name,
+            key=s3_key,
+            extra_args={'ContentType': content_type}
+        )
+        
+        print(f"✓ Uploaded {filename} to S3: {s3_uri}")
+        return s3_uri
+        
+    except Exception as e:
+        print(f"⚠️  Warning: Failed to upload {filename} to S3: {e}")
+        raise
+
+
+def save_raw_text_from_chunks(chunks: list, output_path: str) -> None:
+    """
+    Generate and save raw text file from document chunks.
+    
+    Args:
+        chunks: List of document chunks with text and page information
+        output_path: Path where to save the raw text file
+    """
+    try:
+        with open(output_path, 'w', encoding='utf-8') as f:
+            current_page = None
+            
+            for chunk in chunks:
+                page = chunk.get('page')
+                text = chunk.get('text', '')
+                
+                # Add page marker when page changes
+                if page != current_page:
+                    if current_page is not None:
+                        f.write("\n\n")
+                    f.write(f"{'=' * 60}\n")
+                    f.write(f"PAGE {page}\n")
+                    f.write(f"{'=' * 60}\n\n")
+                    current_page = page
+                
+                # Write chunk text
+                f.write(text)
+                f.write("\n\n")
+        
+        print(f"✓ Saved raw text to {output_path}")
+        
+    except Exception as e:
+        print(f"⚠️  Warning: Failed to save raw text: {e}")
+        raise
 
 
 def merge_results_with_cutouts(
@@ -361,6 +440,33 @@ def main(pdf_path, bucket_name: str = None, job_id: str = None):
         
         print(f"✓ Extracted {len(chunks)} chunks from {pdf_path}")
         print(f"✓ Saved chunks to {chunks_output}")
+        
+        # Generate and save raw text file
+        raw_text_output = os.path.join(OUTPUT_DIR, "document_text.txt")
+        save_raw_text_from_chunks(chunks, raw_text_output)
+        
+        # Upload chunks and raw text to S3 if bucket provided
+        if bucket_name:
+            try:
+                s3_provider = S3Provider()
+                upload_result_file_to_s3(
+                    s3_provider=s3_provider,
+                    local_path=chunks_output,
+                    bucket_name=bucket_name,
+                    job_id=job_id,
+                    filename="document_chunks.json",
+                    content_type='application/json'
+                )
+                upload_result_file_to_s3(
+                    s3_provider=s3_provider,
+                    local_path=raw_text_output,
+                    bucket_name=bucket_name,
+                    job_id=job_id,
+                    filename="document_text.txt",
+                    content_type='text/plain'
+                )
+            except Exception as e:
+                print(f"⚠️  Warning: Failed to upload chunks/text to S3: {e}")
     
     # Display chunk statistics
     element_types = {}
@@ -400,6 +506,21 @@ def main(pdf_path, bucket_name: str = None, job_id: str = None):
     print(f"✓ Contract information extraction complete!")
     print(f"✓ Results saved to {contract_output}")
     
+    # Upload contract result to S3 if bucket provided
+    if bucket_name:
+        try:
+            s3_provider = S3Provider()
+            upload_result_file_to_s3(
+                s3_provider=s3_provider,
+                local_path=contract_output,
+                bucket_name=bucket_name,
+                job_id=job_id,
+                filename="contract_extraction_result.json",
+                content_type='application/json'
+            )
+        except Exception as e:
+            print(f"⚠️  Warning: Failed to upload contract result to S3: {e}")
+    
     # Step 4: Run installment series extraction
     print("\n[4/7] Running installment series agent for payment extraction...")
     installment_result = installment_series_agent.extract_information(chunks)
@@ -412,6 +533,21 @@ def main(pdf_path, bucket_name: str = None, job_id: str = None):
     
     print(f"✓ Installment series extraction complete!")
     print(f"✓ Results saved to {installment_output}")
+    
+    # Upload installment result to S3 if bucket provided
+    if bucket_name:
+        try:
+            s3_provider = S3Provider()
+            upload_result_file_to_s3(
+                s3_provider=s3_provider,
+                local_path=installment_output,
+                bucket_name=bucket_name,
+                job_id=job_id,
+                filename="installment_extraction_result.json",
+                content_type='application/json'
+            )
+        except Exception as e:
+            print(f"⚠️  Warning: Failed to upload installment result to S3: {e}")
     
     # Combine results for backward compatibility
     result = contract_result
@@ -575,12 +711,42 @@ def main(pdf_path, bucket_name: str = None, job_id: str = None):
     save_cutout_manifest(final_cutout_paths, cutout_manifest_path)
     print(f"✓ Cutout manifest saved to {cutout_manifest_path}")
     
+    # Upload cutout manifest to S3 if bucket provided
+    if bucket_name:
+        try:
+            s3_provider = S3Provider()
+            upload_result_file_to_s3(
+                s3_provider=s3_provider,
+                local_path=cutout_manifest_path,
+                bucket_name=bucket_name,
+                job_id=job_id,
+                filename="cutout_manifest.json",
+                content_type='application/json'
+            )
+        except Exception as e:
+            print(f"⚠️  Warning: Failed to upload cutout manifest to S3: {e}")
+    
     # Step 6: Generate markdown report
     print("\n[6/7] Generating markdown report...")
     
     # Generate markdown report using combined result
     markdown_report_path = generate_units_report(combined_result, OUTPUT_DIR, cutout_manifest_path)
     print(f"✓ Markdown report saved to: {markdown_report_path}")
+    
+    # Upload markdown report to S3 if bucket provided
+    if bucket_name:
+        try:
+            s3_provider = S3Provider()
+            upload_result_file_to_s3(
+                s3_provider=s3_provider,
+                local_path=markdown_report_path,
+                bucket_name=bucket_name,
+                job_id=job_id,
+                filename="report.md",
+                content_type='text/markdown'
+            )
+        except Exception as e:
+            print(f"⚠️  Warning: Failed to upload markdown report to S3: {e}")
     
     # Step 7: Send SNS notification (only if S3 upload was successful)
     print("\n[7/7] Sending SNS notification...")
@@ -604,6 +770,20 @@ def main(pdf_path, bucket_name: str = None, job_id: str = None):
                 'units': merged_results
             }, f, indent=2, ensure_ascii=False)
         print(f"✓ Merged notification payload saved to: {merged_output}")
+        
+        # Upload merged notification payload to S3
+        try:
+            s3_provider = S3Provider()
+            upload_result_file_to_s3(
+                s3_provider=s3_provider,
+                local_path=merged_output,
+                bucket_name=bucket_name,
+                job_id=job_id,
+                filename="merged_notification_payload.json",
+                content_type='application/json'
+            )
+        except Exception as e:
+            print(f"⚠️  Warning: Failed to upload merged notification payload to S3: {e}")
         
         # Get SNS topic ARN from environment
         sns_topic_arn = os.environ.get('SNS_TOPIC_ARN')
@@ -636,5 +816,21 @@ def main(pdf_path, bucket_name: str = None, job_id: str = None):
     print(f"🖼️  Cutout images available in: {cutouts_dir}")
     print(f"📊 Markdown report available in: {markdown_report_path}")
     print(f"📁 All output files in: {OUTPUT_DIR}/")
+    
+    if bucket_name:
+        print("\n📤 S3 Uploads:")
+        print(f"   Bucket: {bucket_name}")
+        print(f"   Base Path: contracts/{job_id}/")
+        print(f"   Files uploaded:")
+        print(f"     - document_chunks.json")
+        print(f"     - document_text.txt")
+        print(f"     - contract_extraction_result.json")
+        print(f"     - installment_extraction_result.json")
+        print(f"     - cutout_manifest.json")
+        print(f"     - report.md")
+        if s3_cutout_paths:
+            print(f"     - images/unit_*/{{fieldName}}.png (cutouts)")
+            print(f"     - merged_notification_payload.json")
+    
     print("=" * 60)
 
