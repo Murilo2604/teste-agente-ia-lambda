@@ -12,11 +12,11 @@ from agents.contract_information_agent import load_chunks, save_result
 from cutout_extractor import CutoutExtractor, save_cutout_manifest
 from report_generator import generate_units_report
 
-# Import S3Provider para downloads do S3 e SNSProvider para notificações
+# Import S3Provider para downloads do S3 e HTTPProvider para notificações
 import sys
 sys.path.insert(0, os.path.dirname(__file__))
 from s3_provider import S3Provider
-from sns_provider import SNSProvider
+from http_provider import HTTPProvider
 
 def cleanup_output_directory(output_dir: str) -> None:
     """Clean up the output directory before each run."""
@@ -283,45 +283,47 @@ def merge_results_with_cutouts(
     return merged_units
 
 
-def send_sns_notification(
-    sns_provider: SNSProvider,
-    topic_arn: str,
-    merged_results: list,
-    job_id: str,
-    bucket_name: str,
-    status: str = "success"
-) -> str:
+def send_extraction_results_to_endpoint(
+    http_provider: HTTPProvider,
+    api_url: str,
+    api_key: str,
+    contract_id: str,
+    output_path: str,
+    status: str = "success",
+    error_message: str = None,
+    error_type: str = None
+) -> bool:
     """
-    Send SNS notification with extraction results.
+    Helper function to send extraction results to the backend HTTP endpoint.
     
     Args:
-        sns_provider: SNSProvider instance
-        topic_arn: ARN of the SNS topic
-        merged_results: List of merged extraction results
-        job_id: Job identifier
-        bucket_name: S3 bucket name
-        status: Processing status (default: "success")
+        http_provider: HTTPProvider instance
+        api_url: Base URL of the backend API
+        api_key: API key for authentication
+        contract_id: UUID of the contract
+        output_path: S3 path prefix where results are stored
+        status: "success" or "error"
+        error_message: Optional error message if status is "error"
+        error_type: Optional error type if status is "error"
         
     Returns:
-        Message ID from SNS
+        True if the request was successful, False otherwise.
     """
-    # Build notification payload
-    notification_payload = {
-        'jobId': job_id,
-        'bucketName': bucket_name,
+    payload = {
+        'contract_id': contract_id,
+        'output_path': output_path,
         'status': status,
-        'processedAt': datetime.utcnow().isoformat() + 'Z',
-        'units': merged_results
     }
-    
-    # Send to SNS
-    message_id = sns_provider.publish_message(
-        topic_arn=topic_arn,
-        message=notification_payload,
-        subject=f"Contract Processing Complete - {job_id}"
+    if error_message:
+        payload['error_message'] = error_message
+    if error_type:
+        payload['error_type'] = error_type
+
+    return http_provider.send_extraction_results(
+        api_url=api_url,
+        api_key=api_key,
+        payload=payload
     )
-    
-    return message_id
 
 
 # Entrypoint of the Lambda function
@@ -346,7 +348,16 @@ def handler(event, context):
     # caso contrário usa IAM Role do Lambda (default credential chain)
     s3_provider = S3Provider()
     
+    # Get API URL and API Key from environment
+    api_url = os.environ.get('API_URL')
+    api_key = os.environ.get('API_KEY')
+    
+    # Initialize HTTP provider
+    http_provider = HTTPProvider()
+    
     for record in event['Records']:
+        contract_id = None  # Initialize contract_id for error reporting outside try block
+        output_path = None  # Initialize output_path for error reporting outside try block
         try:
             # Parse da mensagem SQS
             message = json.loads(record['body'])
@@ -373,25 +384,82 @@ def handler(event, context):
             print(f"✓ File downloaded successfully")
             
             job_id = contract_id
+            output_path = f"contracts/{contract_id}/"
             
-            # Processa o arquivo
-            main(
-                pdf_path=local_file_path,
-                bucket_name=bucket_name,
-                job_id=job_id
-            )
-            
-            # Cleanup: remove o arquivo temporário após processamento
-            if os.path.exists(local_file_path):
-                os.remove(local_file_path)
-                print(f"🧹 Cleaned up temporary file: {local_file_path}")
+            # Processa o arquivo with error handling
+            try:
+                main(
+                    pdf_path=local_file_path,
+                    bucket_name=bucket_name,
+                    job_id=job_id
+                )
                 
+                # Send success notification to endpoint
+                if api_url and api_key:
+                    print(f"\n[8/8] Sending extraction results to backend endpoint...")
+                    success = send_extraction_results_to_endpoint(
+                        http_provider=http_provider,
+                        api_url=api_url,
+                        api_key=api_key,
+                        contract_id=contract_id,
+                        output_path=output_path,
+                        status="success"
+                    )
+                    if success:
+                        print(f"✓ Successfully notified backend endpoint")
+                    else:
+                        print(f"⚠️  Failed to notify backend endpoint (non-blocking)")
+                else:
+                    print(f"⚠️  Skipping endpoint notification: API_URL or API_KEY not set")
+                
+            except Exception as processing_error:
+                # Log the error
+                error_type = type(processing_error).__name__
+                error_message = str(processing_error)
+                print(f"❌ Error processing contract: {error_type} - {error_message}")
+                import traceback
+                traceback.print_exc()
+                
+                # Send error notification to endpoint
+                if api_url and api_key:
+                    print(f"\n[Error Notification] Sending error to backend endpoint...")
+                    send_extraction_results_to_endpoint(
+                        http_provider=http_provider,
+                        api_url=api_url,
+                        api_key=api_key,
+                        contract_id=contract_id,
+                        output_path=output_path,
+                        status="error",
+                        error_message=error_message,
+                        error_type=error_type
+                    )
+                else:
+                    print(f"⚠️  Skipping error notification: API_URL or API_KEY not set")
+                
+            finally:
+                # Cleanup: remove o arquivo temporário após processamento
+                if os.path.exists(local_file_path):
+                    os.remove(local_file_path)
+                    print(f"🧹 Cleaned up temporary file: {local_file_path}")
+                    
         except Exception as e:
             print(f"❌ Error processing record: {e}")
             import traceback
             traceback.print_exc()
-            # Continue processando outras mensagens
-            continue
+            # If contract_id and output_path are available, attempt to send error notification
+            if contract_id and output_path and api_url and api_key:
+                print(f"\n[Error Notification - SQS Record Level] Sending error to backend endpoint...")
+                send_extraction_results_to_endpoint(
+                    http_provider=HTTPProvider(),  # Re-initialize if needed
+                    api_url=api_url,
+                    api_key=api_key,
+                    contract_id=contract_id,
+                    output_path=output_path,
+                    status="error",
+                    error_message=str(e),
+                    error_type=type(e).__name__
+                )
+            continue  # Continue processing other messages
     
 def main(pdf_path, bucket_name: str = None, job_id: str = None):
     """
@@ -748,8 +816,8 @@ def main(pdf_path, bucket_name: str = None, job_id: str = None):
         except Exception as e:
             print(f"⚠️  Warning: Failed to upload markdown report to S3: {e}")
     
-    # Step 7: Send SNS notification (only if S3 upload was successful)
-    print("\n[7/7] Sending SNS notification...")
+    # Step 7: Save merged results for inspection and upload to S3
+    print("\n[7/7] Saving merged results...")
     
     if bucket_name and s3_cutout_paths is not None:
         # Merge results and map chunk IDs to S3 file keys
@@ -785,29 +853,9 @@ def main(pdf_path, bucket_name: str = None, job_id: str = None):
         except Exception as e:
             print(f"⚠️  Warning: Failed to upload merged notification payload to S3: {e}")
         
-        # Get SNS topic ARN from environment
-        sns_topic_arn = os.environ.get('SNS_TOPIC_ARN')
-        
-        if sns_topic_arn:
-            try:
-                sns_provider = SNSProvider()
-                message_id = send_sns_notification(
-                    sns_provider=sns_provider,
-                    topic_arn=sns_topic_arn,
-                    merged_results=merged_results,
-                    job_id=job_id,
-                    bucket_name=bucket_name,
-                    status='success'
-                )
-                print(f"✓ SNS notification sent successfully! Message ID: {message_id}")
-            except Exception as e:
-                print(f"⚠️  Warning: Failed to send SNS notification: {e}")
-                import traceback
-                traceback.print_exc()
-        else:
-            print(f"⚠️  Skipping SNS notification: SNS_TOPIC_ARN environment variable not set")
+        # Note: HTTP endpoint notification is now handled in the handler() function
     else:
-        print(f"⚠️  Skipping SNS notification: S3 upload was not successful or bucket not provided")
+        print(f"⚠️  Skipping merged results upload: S3 upload was not successful or bucket not provided")
     
     print("\n" + "=" * 60)
     print("✅ Processing complete!")
