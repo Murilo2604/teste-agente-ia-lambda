@@ -207,6 +207,17 @@ def merge_results_with_cutouts(
     """
     merged_units = []
     
+    def dedupe_sources(sources):
+        seen = set()
+        filtered = []
+        for source in sources or []:
+            key = (source.get('field'), source.get('chunk_id'))
+            if key in seen:
+                continue
+            seen.add(key)
+            filtered.append(source)
+        return filtered
+    
     # Process each unit
     for unit_idx, contract_unit in enumerate(contract_result):
         unit_number = unit_idx + 1
@@ -231,7 +242,7 @@ def merge_results_with_cutouts(
             merged_unit['confidence'].update(installment_confidence)
         
         # Process contract sources and map to S3 URIs
-        for source in contract_unit.get('sources', []):
+        for source in dedupe_sources(contract_unit.get('sources', [])):
             field = source.get('field')
             chunk_id = source.get('chunk_id')
             
@@ -250,19 +261,20 @@ def merge_results_with_cutouts(
             
             merged_unit['sources'].append({
                 'field': field,
+                'chunk_id': chunk_id,
                 'chunk_file_key': chunk_file_key
             })
         
         # Add installment sources if available
         if unit_idx < len(installment_result):
-            installment_sources = installment_result[unit_idx].get('sources', [])
+            installment_sources = dedupe_sources(installment_result[unit_idx].get('sources', []))
             
             for source in installment_sources:
                 field = source.get('field')
                 chunk_id = source.get('chunk_id')
                 
                 # Skip if already in sources (from contract)
-                if any(s['field'] == field for s in merged_unit['sources']):
+                if any(s['field'] == field and s.get('chunk_id') == chunk_id for s in merged_unit['sources']):
                     continue
                 
                 field_key = f"unit{unit_number}_{field}"
@@ -281,6 +293,20 @@ def merge_results_with_cutouts(
         merged_units.append(merged_unit)
     
     return merged_units
+
+def _log_chunk_coverage(label: str, units: list):
+    missing = []
+    for unit_idx, unit in enumerate(units or []):
+        for source in unit.get('sources', []):
+            if not source.get('chunk_id'):
+                missing.append((unit_idx + 1, source.get('field')))
+
+    if missing:
+        print(f"\n⚠️  [{label}] {len(missing)} sources missing chunk_id:")
+        for unit_number, field in missing:
+            print(f"   - Unit {unit_number}, field '{field}'")
+    else:
+        print(f"\n✓ [{label}] All sources include chunk_id")
 
 
 def send_extraction_results_to_endpoint(
@@ -566,6 +592,7 @@ def main(pdf_path, bucket_name: str = None, job_id: str = None):
     # Step 3: Run contract information extraction
     print("\n[3/7] Running contract information agent for data extraction...")
     contract_result = contract_information_agent.extract_information(chunks)
+    _log_chunk_coverage("Contract information", contract_result)
     
     # Save contract result
     contract_output = os.path.join(OUTPUT_DIR, "contract_extraction_result.json")
@@ -592,6 +619,7 @@ def main(pdf_path, bucket_name: str = None, job_id: str = None):
     # Step 4: Run installment series extraction
     print("\n[4/7] Running installment series agent for payment extraction...")
     installment_result = installment_series_agent.extract_information(chunks)
+    _log_chunk_coverage("Installment information", installment_result)
     
     # Save installment result
     from agents.installment_series_agent import save_result as save_installment_result

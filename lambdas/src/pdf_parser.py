@@ -120,6 +120,9 @@ def parse_pdf_to_chunks(pdf_path):
         })
         chunk_counter += 1
     
+    invalid_chunks = [chunk for chunk in chunks if 'chunk_id' not in chunk or 'page' not in chunk or 'bbox' not in chunk]
+    if invalid_chunks:
+        print(f"⚠️  Found {len(invalid_chunks)} chunks missing chunk_id/page/bbox; they will be skipped by the extractor.")
     return chunks
 
 if __name__ == "__main__":
