@@ -28,6 +28,7 @@ resource "aws_sqs_queue" "gcb_ai_agent_sqs_queue_fifo" {
   name                        = var.gcb_ai_agent_sqs_fifo_queue_name
   fifo_queue                  = true
   delay_seconds               = 10
+  visibility_timeout_seconds  = 960  # 16 minutes (slightly more than Lambda timeout of 15 minutes)
   content_based_deduplication = true
   redrive_policy = jsonencode({
     deadLetterTargetArn = aws_sqs_queue.gcb_ai_agent_sqs_dlq_fifo_queue.arn
