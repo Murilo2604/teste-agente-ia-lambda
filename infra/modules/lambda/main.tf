@@ -125,7 +125,7 @@ resource "aws_lambda_function" "gcb_ai_agent_lambda_function" {
 
   # Timeout e memória aumentados para processamento de PDF com Docling
   timeout     = 900  # 15 minutos (máximo para Lambda)
-  memory_size = 3008 # 3GB (ajuste conforme necessário)
+  memory_size = 10240 # 10GB (ajuste conforme necessário)
 
   # Configuração de ambiente
   environment {
