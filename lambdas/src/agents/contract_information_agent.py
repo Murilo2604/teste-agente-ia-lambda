@@ -54,6 +54,10 @@ class ContractInformationAgent:
                 "description": "Full name of the buyer/purchaser",
                 "type": "string"
             },
+            "buyerDocumentNumber": {
+                "description": "Buyer's document number (CPF for individuals or CNPJ for companies) - used to differentiate buyers",
+                "type": "string"
+            },
             "areaM2": {
                 "description": "Total area of the property in square meters",
                 "type": "number"
@@ -90,6 +94,7 @@ class ContractInformationAgent:
 • For paid/completed items, set value to 0.00 if applicable
 • signingDate: Usually on last pages or next to city/state information - MUST be in ISO 8601 format (YYYY-MM-DD)
 • buyerName: If multiple buyers for the same unit, use the first buyer name and ignore the rest
+• buyerDocumentNumber: Extract CPF (for individuals) or CNPJ (for companies) associated with the buyer
 • All dates must be converted to ISO 8601 format (YYYY-MM-DD) before returning
 """
 
