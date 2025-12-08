@@ -70,6 +70,10 @@ class ContractInformationAgent:
                 "description": "Date when the contract was signed or executed - MUST be in ISO 8601 format (YYYY-MM-DD) - usually accompanying the city/state information.",
                 "type": "string"
             },
+            "indexerBaseDate": {
+                "description": "Base date for indexer calculations - the reference date from which indexer adjustments are calculated. MUST be in ISO 8601 format (YYYY-MM-DD). Usually found near indexer mentions or payment schedule sections.",
+                "type": "string"
+            },
         }
         
         # Business Rules - Domain-specific extraction rules
@@ -93,6 +97,7 @@ class ContractInformationAgent:
 • Use calculate_price_per_m2 tool for price per square meter calculations
 • For paid/completed items, set value to 0.00 if applicable
 • signingDate: Usually on last pages or next to city/state information - MUST be in ISO 8601 format (YYYY-MM-DD)
+• indexerBaseDate: Base date for indexer calculations - usually found near indexer mentions (IPCA, IGPM, SELIC, INCC) or payment schedule sections. Look for phrases like "data base", "data de referência", "a partir de", "desde". MUST be in ISO 8601 format (YYYY-MM-DD)
 • buyerName: If multiple buyers for the same unit, use the first buyer name and ignore the rest
 • buyerDocumentNumber: Extract CPF (for individuals) or CNPJ (for companies) associated with the buyer
 • All dates must be converted to ISO 8601 format (YYYY-MM-DD) before returning
@@ -300,6 +305,7 @@ Return a JSON array where each element contains:
             "",
             "## Field-Specific Implementation Notes",
             "• signingDate: Do NOT use the dates of digital signatures",
+            "• indexerBaseDate: Look for base dates near indexer mentions or payment schedules. Common phrases: 'data base', 'data de referência', 'a partir de', 'desde'",
             "• Information can be repeated between entities if the same"
         ])
         

@@ -51,9 +51,9 @@ class InstallmentSeriesAgent:
                         "enum": ["MENSAL", "CHAVES", "ATO", "UNICA", "TRIMESTRAL", "ANUAL", "BIMESTRAL", "BIENAL"]
                     },
                     "indexerCode": {
-                        "description": "Indexer code for the installment plan",
+                        "description": "Indexer code for the installment plan. Look for keywords like 'IPCA', 'IGPM', 'SELIC', 'INCC', 'corrigido pelo', 'atualizado pelo' in the contract text. If no indexer is specified, use 'REAL'. Common patterns: 'corrigido pelo IPCA', 'atualizado pelo IGPM', 'SELIC', 'INCC'.",
                         "type": "string",
-                        "enum": ["REAL", "INCC", "IPCA"]
+                        "enum": ["REAL", "INCC", "IPCA", "IGPM", "SELIC"]
                     },
                     "firstDueDate": {
                         "description": "First due date of the installment plan - MUST be in ISO 8601 format (YYYY-MM-DD)",
@@ -118,6 +118,13 @@ class InstallmentSeriesAgent:
 - Look for payment patterns in the text (e.g., "X parcelas mensais", "Y parcelas anuais")
 - Extract installment amounts, dates, and indexer codes when available
 - All dates must be converted to ISO 8601 format (YYYY-MM-DD) before returning
+
+### Indexer Code Extraction Rules
+- Look for explicit mentions of indexers: IPCA, IGPM, SELIC, INCC
+- Common patterns: "corrigido pelo IPCA", "atualizado pelo IGPM", "SELIC", "INCC"
+- If no indexer is mentioned, default to REAL
+- Indexer codes are typically found near payment schedules or installment descriptions
+- Extract indexerCode for each installment plan separately
 """
 
         # JSON Structure Rules - Technical implementation rules
@@ -277,6 +284,7 @@ class InstallmentSeriesAgent:
             "## Field-Specific Implementation Notes",
             "• Look for payment patterns in the text (e.g., 'X parcelas mensais', 'Y parcelas anuais')",
             "• Extract installment amounts, dates, and indexer codes when available",
+            "• For indexerCode: Look for keywords like 'IPCA', 'IGPM', 'SELIC', 'INCC', 'corrigido pelo', 'atualizado pelo'. If not found, use 'REAL'",
             "• Information can be repeated between entities if the same",
             "",
             "Return the result as valid JSON with the following structure:",
@@ -287,8 +295,8 @@ class InstallmentSeriesAgent:
                         "installmentPlans": [
                             {
                                 "totalInstallments": "integer",
-                                "series": "string (enum)",
-                                "indexerCode": "string (optional)",
+                                "series": "string (enum: MENSAL, CHAVES, ATO, UNICA, TRIMESTRAL, ANUAL, BIMESTRAL, BIENAL)",
+                                "indexerCode": "string (optional, enum: REAL, INCC, IPCA, IGPM, SELIC - default to REAL if not specified)",
                                 "firstDueDate": "string (ISO 8601 format - YYYY-MM-DD)",
                                 "totalValue": "number (optional)",
                                 "installmentAmount": "number (optional)"
