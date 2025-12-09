@@ -404,13 +404,18 @@ def handler(event, context):
             file_name = file_key.split('/')[-1]
             local_file_path = f"/tmp/{file_name}"
             
+            job_id = contract_id
+            output_path = f"contracts/{contract_id}/"
+
+            # Guard: skip re-extraction if results prefix already exists
+            if s3_provider.prefix_exists(bucket_name, output_path):
+                print(f"⚠️ Results already present at s3://{bucket_name}/{output_path}. Skipping re-extraction.")
+                continue
+
             # Faz o download do arquivo do S3 usando S3Provider
             print(f"⬇️  Downloading from S3 to {local_file_path}...")
             s3_provider.download_file_to_path(bucket_name, file_key, local_file_path)
             print(f"✓ File downloaded successfully")
-            
-            job_id = contract_id
-            output_path = f"contracts/{contract_id}/"
             
             # Processa o arquivo with error handling
             try:

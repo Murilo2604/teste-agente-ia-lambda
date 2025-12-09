@@ -75,9 +75,14 @@ class HTTPProvider:
             logger.error(f"❌ Request to {endpoint} timed out after 30 seconds.")
             return False
         except requests.exceptions.RequestException as e:
+            status = e.response.status_code if e.response is not None else None
+            # Treat 409 (results already received) as a success acknowledgment to avoid retries
+            if status == 409:
+                logger.info("⚠️ Backend responded 409 (results already received). Treating as success.")
+                return True
             logger.error(f"❌ Failed to send results to {endpoint}: {e}")
             if e.response is not None:
-                logger.error(f"Response status: {e.response.status_code}, body: {e.response.text}")
+                logger.error(f"Response status: {status}, body: {e.response.text}")
             return False
         except Exception as e:
             logger.error(f"❌ An unexpected error occurred while sending results: {e}")
