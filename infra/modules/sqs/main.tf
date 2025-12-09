@@ -32,7 +32,7 @@ resource "aws_sqs_queue" "gcb_ai_agent_sqs_queue_fifo" {
   content_based_deduplication = true
   redrive_policy = jsonencode({
     deadLetterTargetArn = aws_sqs_queue.gcb_ai_agent_sqs_dlq_fifo_queue.arn
-    maxReceiveCount     = 4
+    maxReceiveCount     = 2
   })
 
   tags = {
