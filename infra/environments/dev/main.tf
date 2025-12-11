@@ -1,3 +1,9 @@
+# ================================================================================
+# GCB AI Agent - Dev Environment
+# ================================================================================
+# This is the root module that orchestrates all infrastructure for dev.
+# ================================================================================
+
 terraform {
   required_version = ">= 1.0.0"
   required_providers {
@@ -8,114 +14,79 @@ terraform {
   }
 }
 
+# ------------------- Provider Configuration -------------------
 provider "aws" {
-  region = var.aws_region
-  access_key = var.aws_access_key_id
-  secret_key = var.aws_secret_access_key
-
-  assume_role {
-    role_arn     = var.gcb_ai_agent_role_arn
-    session_name = "gcb_ai_agent_iam_role_session"
+  region  = var.aws_region
+  profile = "anka-sso"
+  
+  default_tags {
+    tags = {
+      Environment = var.environment
+      ManagedBy   = "Terraform"
+      Project     = "GCB-AI-Agent"
+    }
   }
 }
 
-# ECR module (deve ser criado primeiro para ter a imagem disponível)
-module "gcb_ai_agent_ecr" {
+# ------------------- Data Sources -------------------
+data "aws_caller_identity" "current" {}
+data "aws_region" "current" {}
+
+data "aws_s3_bucket" "existing" {
+  bucket = var.s3_bucket_name
+}
+
+# ===============================================================================
+# MODULES - Order matters for dependencies
+# ===============================================================================
+
+# ------------------- 1. ECR Module (independent) -------------------
+module "ecr" {
   source = "../../modules/ecr"
 
+  name_prefix = var.name_prefix
   environment = var.environment
-
-  gcb_ai_agent_ecr_repository_name = var.gcb_ai_agent_ecr_repository_name
-  gcb_ai_agent_ecr_image_uri      = var.gcb_ai_agent_ecr_image_uri
+  image_tag   = var.image_tag
 }
 
-# SQS module
-module "gcb_ai_agent_sqs" {
+# ------------------- 2. SQS Module (independent) -------------------
+module "sqs" {
   source = "../../modules/sqs"
 
-  environment = var.environment
-
-  gcb_ai_agent_sqs_fifo_queue_name = var.gcb_ai_agent_sqs_fifo_queue_name
-  gcb_ai_agent_sqs_fifo_queue_ssm_name = var.gcb_ai_agent_sqs_fifo_queue_ssm_name
-  gcb_ai_agent_sqs_fifo_queue_ssm  = var.gcb_ai_agent_sqs_fifo_queue_ssm
-
-  gcb_ai_agent_sqs_dlq_queue_fifo_name = var.gcb_ai_agent_sqs_dlq_queue_fifo_name
-  gcb_ai_agent_sqs_dlq_queue_fifo_ssm_name = var.gcb_ai_agent_sqs_dlq_queue_fifo_ssm_name
-  gcb_ai_agent_sqs_dlq_queue_fifo_ssm  = var.gcb_ai_agent_sqs_dlq_queue_fifo_ssm
+  name_prefix                = var.name_prefix
+  environment                = var.environment
+  delay_seconds              = var.sqs_delay_seconds
+  visibility_timeout_seconds = var.sqs_visibility_timeout_seconds
+  max_receive_count          = var.sqs_max_receive_count
 }
 
-# SNS module - para notificações de sucesso
-module "gcb_ai_agent_sns" {
-  source = "../../modules/sns"
+# ------------------- 3. IAM Module (depends on SQS, S3) -------------------
+module "iam" {
+  source = "../../modules/iam"
 
-  environment = var.environment
+  name_prefix   = var.name_prefix
+  environment   = var.environment
+  sqs_queue_arn = module.sqs.queue_arn
+  s3_bucket_arn = data.aws_s3_bucket.existing.arn
 
-  gcb_ai_agent_sns_topic_name = var.gcb_ai_agent_sns_topic_name
-  
-  # Opcional: descomente para adicionar subscriptions
-  # notification_email = var.notification_email
+  depends_on = [module.sqs]
 }
 
-# Lambda module (consumes outputs from SQS and ECR)
-module "gcb_ai_agent_lambda" {
+# ------------------- 4. Lambda Module (depends on all above) -------------------
+module "lambda" {
   source = "../../modules/lambda"
 
-  environment = var.environment
+  name_prefix     = var.name_prefix
+  environment     = var.environment
+  lambda_role_arn = module.iam.lambda_execution_role_arn
+  ecr_image_uri   = module.ecr.image_uri
+  sqs_queue_arn   = module.sqs.queue_arn
+  sqs_queue_url   = module.sqs.queue_url
+  s3_bucket_name  = var.s3_bucket_name
+  s3_endpoint     = var.s3_endpoint
+  openai_api_key  = var.openai_api_key
+  timeout         = var.lambda_timeout
+  memory_size     = var.lambda_memory_size
 
-  gcb_ai_agent_lambda_function_name = var.gcb_ai_agent_lambda_function_name
-  gcb_ai_agent_lambda_role_name     = var.gcb_ai_agent_lambda_role_name
-
-  # Gives access to the SQS queue outputs to the Lambda function
-  gcb_ai_agent_sqs_fifo_queue_arn = module.gcb_ai_agent_sqs.gcb_ai_agent_sqs_queue_fifo_arn
-  gcb_ai_agent_sqs_fifo_queue_url = module.gcb_ai_agent_sqs.gcb_ai_agent_sqs_queue_fifo_id
-
-  # Gives access to the ECR image URI to the Lambda function
-  gcb_ai_agent_ecr_image_uri = module.gcb_ai_agent_ecr.gcb_ai_agent_ecr_image_uri
-
-  gcb_ai_agent_lambda_role_arn = var.gcb_ai_agent_lambda_role_arn
-
-  # Gives access to the environment variables to the Lambda function
-  openai_api_key = var.openai_api_key
-  s3_bucket_name = var.s3_bucket_name
-  sns_topic_arn  = module.gcb_ai_agent_sns.gcb_ai_agent_sns_topic_arn  # Agora usa o output do módulo SNS
-  s3_endpoint    = var.s3_endpoint
-
-  # Dependências: Lambda precisa esperar ECR e SNS estarem prontos
-  depends_on = [module.gcb_ai_agent_ecr, module.gcb_ai_agent_sns]
-}
-
-# ------------------- Outputs -------------------
-output "ecr_repository_url" {
-  value       = module.gcb_ai_agent_ecr.gcb_ai_agent_ecr_repository_url
-  description = "URL do repositório ECR"
-}
-
-output "ecr_repository_name" {
-  value       = module.gcb_ai_agent_ecr.gcb_ai_agent_ecr_repository_name
-  description = "Nome do repositório ECR"
-}
-
-output "ecr_image_uri" {
-  value       = module.gcb_ai_agent_ecr.gcb_ai_agent_ecr_image_uri
-  description = "URI completa da imagem Docker (com tag latest)"
-}
-
-output "lambda_function_name" {
-  value       = var.gcb_ai_agent_lambda_function_name
-  description = "Nome da função Lambda"
-}
-
-output "sqs_queue_url" {
-  value       = module.gcb_ai_agent_sqs.gcb_ai_agent_sqs_queue_fifo_id
-  description = "URL da fila SQS"
-}
-
-output "sns_topic_arn" {
-  value       = module.gcb_ai_agent_sns.gcb_ai_agent_sns_topic_arn
-  description = "ARN do tópico SNS para notificações"
-}
-
-output "sns_topic_name" {
-  value       = module.gcb_ai_agent_sns.gcb_ai_agent_sns_topic_name
-  description = "Nome do tópico SNS"
+  depends_on = [module.iam, module.ecr, module.sqs]
 }

@@ -1,23 +1,46 @@
-# Exporting the ARN of the SQS queue
-output "gcb_ai_agent_sqs_queue_fifo_arn" {
-  description = "ARN of the SQS queue"
-  value       = aws_sqs_queue.gcb_ai_agent_sqs_queue_fifo.arn
+# ================================================================================
+# SQS Module Outputs - GCB AI Agent
+# ================================================================================
+
+# ------------------- Main Queue -------------------
+output "queue_arn" {
+  value       = aws_sqs_queue.main.arn
+  description = "ARN of the main SQS queue"
 }
 
-# Exporting the ID (URL) of the SQS queue
-output "gcb_ai_agent_sqs_queue_fifo_id" {
-  description = "ID (URL) of the SQS queue"
-  value       = aws_sqs_queue.gcb_ai_agent_sqs_queue_fifo.id
+output "queue_url" {
+  value       = aws_sqs_queue.main.url
+  description = "URL of the main SQS queue"
 }
 
-# Exporting the ARN of the SQS DLQ
-output "gcb_ai_agent_sqs_dlq_fifo_queue_arn" {
-  description = "ARN of the SQS Dead Letter Queue"
-  value       = aws_sqs_queue.gcb_ai_agent_sqs_dlq_fifo_queue.arn
+output "queue_name" {
+  value       = aws_sqs_queue.main.name
+  description = "Name of the main SQS queue"
 }
 
-# Exporting the ID (URL) of the SQS DLQ
-output "gcb_ai_agent_sqs_dlq_fifo_queue_id" {
-  description = "ID (URL) of the SQS Dead Letter Queue"
-  value       = aws_sqs_queue.gcb_ai_agent_sqs_dlq_fifo_queue.id
+# ------------------- Dead Letter Queue -------------------
+output "dlq_arn" {
+  value       = aws_sqs_queue.dlq.arn
+  description = "ARN of the dead letter queue"
+}
+
+output "dlq_url" {
+  value       = aws_sqs_queue.dlq.url
+  description = "URL of the dead letter queue"
+}
+
+output "dlq_name" {
+  value       = aws_sqs_queue.dlq.name
+  description = "Name of the dead letter queue"
+}
+
+# ------------------- SSM Parameters -------------------
+output "ssm_queue_url_path" {
+  value       = aws_ssm_parameter.queue_url.name
+  description = "SSM parameter path for queue URL"
+}
+
+output "ssm_dlq_url_path" {
+  value       = aws_ssm_parameter.dlq_url.name
+  description = "SSM parameter path for DLQ URL"
 }

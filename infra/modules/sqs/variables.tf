@@ -1,52 +1,34 @@
+# ================================================================================
+# SQS Module Variables - GCB AI Agent
+# ================================================================================
+
+# ------------------- Naming -------------------
+variable "name_prefix" {
+  type        = string
+  description = "Prefix for naming SQS resources"
+  default     = "gcb-ai-agent"
+}
+
 variable "environment" {
   type        = string
-  description = "Environment to deploy the infrastructure"
-  default     = "dev"
+  description = "Environment (dev, staging, prod)"
 }
 
-# ------------------- ROLE ARN -------------------
-variable "gcb_ai_agent_role_arn" {
-  type        = string
-  description = "ARN of the GCB AI Agent role"
-  default     = "arn:aws:iam::123456789012:role/gcb_ai_agent_role"
+# ------------------- Queue Configuration -------------------
+variable "delay_seconds" {
+  type        = number
+  description = "Delay in seconds before messages become available"
+  default     = 10
 }
 
-# ------------------- SQS FIFO Queue Name -------------------
-variable "gcb_ai_agent_sqs_fifo_queue_name" {
-  type        = string
-  description = "Name of the SQS queue"
-  default     = "gcb_ai_agent_sqs_queue_fifo.fifo"
+variable "visibility_timeout_seconds" {
+  type        = number
+  description = "Visibility timeout (should be >= Lambda timeout)"
+  default     = 900 # 15 minutes
 }
 
-# ------------------- SQS Deadletter FIFO Queue Name -------------------
-variable "gcb_ai_agent_sqs_dlq_queue_fifo_name" {
-  type        = string
-  description = "Name of the SQS queue deadletter"
-  default     = "gcb_ai_agent_sqs_dlq_queue_fifo.fifo"
-}
-
-# ------------------- SQS FIFO Queue SSM -------------------
-variable "gcb_ai_agent_sqs_fifo_queue_ssm_name" {
-  type        = string
-  description = "Name of the SQS FIFO queue SSM parameter"
-  default     = "gcb_ai_agent_sqs_fifo_queue_ssm"
-}
-
-variable "gcb_ai_agent_sqs_fifo_queue_ssm" {
-  type        = string
-  description = "SSM Parameter Store Path to expose the SQS queue URL"
-  default     = "/gcb-ai-agent/dev/sqs/gcb_ai_agent_sqs_queue_fifo_url"
-}
-
-# ------------------- SQS Deadletter FIFO Queue SSM -------------------
-variable "gcb_ai_agent_sqs_dlq_queue_fifo_ssm_name" {
-  type        = string
-  description = "Name of the SQS Deadletter FIFO queue SSM parameter"
-  default     = "gcb_ai_agent_sqs_deadletter_fifo_queue_ssm"
-}
-
-variable "gcb_ai_agent_sqs_dlq_queue_fifo_ssm" {
-  type        = string
-  description = "SSM Parameter Store Path to expose the SQS Deadletter queue URL"
-  default     = "/gcb-ai-agent/dev/sqs/gcb_ai_agent_sqs_dlq_queue_fifo_url"
+variable "max_receive_count" {
+  type        = number
+  description = "Number of receives before message goes to DLQ"
+  default     = 4
 }

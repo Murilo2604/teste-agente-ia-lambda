@@ -1,83 +1,106 @@
-resource "aws_ssm_parameter" "sqs_queue_ssm" {
-  name  = var.gcb_ai_agent_sqs_fifo_queue_ssm
-  type  = "String"
-  value = aws_sqs_queue.gcb_ai_agent_sqs_queue_fifo.url
+# ================================================================================
+# SQS Module - GCB AI Agent
+# ================================================================================
+# This module creates SQS FIFO queues with dead-letter queue and SSM parameters.
+# ================================================================================
+
+# ------------------- Locals for Dynamic Naming -------------------
+locals {
+  queue_name     = "${var.name_prefix}-queue-${var.environment}.fifo"
+  dlq_name       = "${var.name_prefix}-dlq-${var.environment}.fifo"
+  ssm_queue_path = "/${var.name_prefix}/${var.environment}/sqs/queue_url"
+  ssm_dlq_path   = "/${var.name_prefix}/${var.environment}/sqs/dlq_url"
+}
+
+# ------------------- Dead Letter Queue -------------------
+resource "aws_sqs_queue" "dlq" {
+  name       = local.dlq_name
+  fifo_queue = true
+
+  # Message retention: 14 days (maximum)
+  message_retention_seconds = 1209600
 
   tags = {
-    Name        = "${var.gcb_ai_agent_sqs_fifo_queue_ssm_name}-${var.environment}"
-    Description = "SSM-Parameter-Store-Key-Exposes-the-SQS-Queue-URL"
+    Name        = local.dlq_name
     Environment = var.environment
     ManagedBy   = "Terraform"
+    Project     = "GCB-AI-Agent"
+    Type        = "DeadLetterQueue"
   }
 }
 
-resource "aws_ssm_parameter" "sqs_dlq_queue_ssm" {
-  name  = var.gcb_ai_agent_sqs_dlq_queue_fifo_ssm
-  type  = "String"
-  value = aws_sqs_queue.gcb_ai_agent_sqs_dlq_fifo_queue.url
-
-  tags = {
-    Name        = "${var.gcb_ai_agent_sqs_dlq_queue_fifo_ssm_name}-${var.environment}"
-    Description = "SSM-Parameter-Store-Key-Exposes-the-SQS-DLQ-URL"
-    Environment = var.environment
-    ManagedBy   = "Terraform"
-  }
-}
-
-resource "aws_sqs_queue" "gcb_ai_agent_sqs_queue_fifo" {
-  name                        = var.gcb_ai_agent_sqs_fifo_queue_name
+# ------------------- Main Queue -------------------
+resource "aws_sqs_queue" "main" {
+  name                        = local.queue_name
   fifo_queue                  = true
-  delay_seconds               = 10
+  delay_seconds               = var.delay_seconds
   content_based_deduplication = true
+
+  # Visibility timeout should be >= Lambda timeout
+  visibility_timeout_seconds = var.visibility_timeout_seconds
+
   redrive_policy = jsonencode({
-    deadLetterTargetArn = aws_sqs_queue.gcb_ai_agent_sqs_dlq_fifo_queue.arn
-    maxReceiveCount     = 4
+    deadLetterTargetArn = aws_sqs_queue.dlq.arn
+    maxReceiveCount     = var.max_receive_count
   })
 
   tags = {
-    Name        = "${var.gcb_ai_agent_sqs_fifo_queue_name}-${var.environment}"
+    Name        = local.queue_name
     Environment = var.environment
     ManagedBy   = "Terraform"
+    Project     = "GCB-AI-Agent"
+    Type        = "MainQueue"
   }
 }
 
-resource "aws_sqs_queue" "gcb_ai_agent_sqs_dlq_fifo_queue" {
-  name       = var.gcb_ai_agent_sqs_dlq_queue_fifo_name
-  fifo_queue = true
-
-  tags = {
-    Name        = "${var.gcb_ai_agent_sqs_dlq_queue_fifo_name}-${var.environment}"
-    Environment = var.environment
-    ManagedBy   = "Terraform"
-  }
-}
-
-# Define which/who can access the SQS queue;
-# In this case allow every Lambda function to access the SQS queue and consume messages;
-# Resource to allow the Lambda function to access the SQS queue and consume messages;
-resource "aws_sqs_queue_policy" "gcb_ai_agent_sqs_queue_fifo_policy" {
-  # Reference the SQS queue;
-  queue_url = aws_sqs_queue.gcb_ai_agent_sqs_queue_fifo.id
+# ------------------- Queue Policy -------------------
+resource "aws_sqs_queue_policy" "main" {
+  queue_url = aws_sqs_queue.main.id
 
   policy = jsonencode({
     Version = "2012-10-17"
     Statement = [
       {
+        Sid    = "AllowLambdaAccess"
         Effect = "Allow"
         Principal = {
-          # Who can execute the actions on the SQS queue;
           Service = "lambda.amazonaws.com"
         }
-        # What actions can be executed on the SQS queue;
         Action = [
-          "sqs:ReceiveMessage", # Allow the Lambda function to receive messages from the SQS queue;
-          "sqs:DeleteMessage", # Allow the Lambda function to delete messages from the SQS queue (after processing);
-          "sqs:GetQueueAttributes", # Allow the Lambda function to get the attributes of the SQS queue;
-          "sqs:GetQueueUrl" # Allow the Lambda function to get the URL of the SQS queue;
+          "sqs:ReceiveMessage",
+          "sqs:DeleteMessage",
+          "sqs:GetQueueAttributes",
+          "sqs:GetQueueUrl"
         ]
-        # Which resource this policy gonna affect;
-        Resource = aws_sqs_queue.gcb_ai_agent_sqs_queue_fifo.arn
+        Resource = aws_sqs_queue.main.arn
       }
     ]
   })
+}
+
+# ------------------- SSM Parameters -------------------
+resource "aws_ssm_parameter" "queue_url" {
+  name  = local.ssm_queue_path
+  type  = "String"
+  value = aws_sqs_queue.main.url
+
+  tags = {
+    Name        = "${var.name_prefix}-sqs-queue-url-${var.environment}"
+    Description = "SQS Queue URL for GCB AI Agent"
+    Environment = var.environment
+    ManagedBy   = "Terraform"
+  }
+}
+
+resource "aws_ssm_parameter" "dlq_url" {
+  name  = local.ssm_dlq_path
+  type  = "String"
+  value = aws_sqs_queue.dlq.url
+
+  tags = {
+    Name        = "${var.name_prefix}-sqs-dlq-url-${var.environment}"
+    Description = "SQS DLQ URL for GCB AI Agent"
+    Environment = var.environment
+    ManagedBy   = "Terraform"
+  }
 }

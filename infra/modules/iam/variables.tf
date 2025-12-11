@@ -1,12 +1,11 @@
 # ================================================================================
-# ECR Module Variables - GCB AI Agent
+# IAM Module Variables - GCB AI Agent
 # ================================================================================
 
 # ------------------- Naming -------------------
 variable "name_prefix" {
   type        = string
-  description = "Prefix for naming ECR repository"
-  default     = "gcb-ai-agent"
+  description = "Prefix for naming IAM resources"
 }
 
 variable "environment" {
@@ -14,9 +13,13 @@ variable "environment" {
   description = "Environment (dev, staging, prod)"
 }
 
-# ------------------- Image Configuration -------------------
-variable "image_tag" {
+# ------------------- Resource ARNs for Policies -------------------
+variable "sqs_queue_arn" {
   type        = string
-  description = "Docker image tag to reference (managed by CI/CD)"
-  default     = "latest"
+  description = "ARN of the SQS queue for Lambda access policy"
+}
+
+variable "s3_bucket_arn" {
+  type        = string
+  description = "ARN of the S3 bucket for Lambda access policy"
 }
