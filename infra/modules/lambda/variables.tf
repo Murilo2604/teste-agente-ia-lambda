@@ -49,6 +49,13 @@ variable "s3_endpoint" {
   default     = "https://s3.amazonaws.com"
 }
 
+# ------------------- Backend Configuration -------------------
+variable "backend_url" {
+  type        = string
+  description = "URL of the backend (ALB) for HTTP callbacks"
+  default     = ""
+}
+
 # ------------------- API Keys -------------------
 variable "openai_api_key" {
   type        = string

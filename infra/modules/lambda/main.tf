@@ -25,6 +25,7 @@ resource "aws_lambda_function" "main" {
       S3_ENDPOINT      = var.s3_endpoint
       S3_BUCKET_NAME   = var.s3_bucket_name
       SQS_QUEUE_URL    = var.sqs_queue_url
+      BACKEND_URL      = var.backend_url
       PYTHONUNBUFFERED = "1"
     }
   }

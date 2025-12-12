@@ -83,10 +83,11 @@
 │ • sqs_queue_url ◄──────── (do módulo SQS) - para variável de ambiente               │
 │ • s3_bucket_name ◄─────── (das variáveis)                                           │
 │ • openai_api_key ◄─────── (das variáveis - sensível)                                │
+│ • backend_url ◄────────── (das variáveis) - URL do ALB para callbacks               │
 ├─────────────────────────────────────────────────────────────────────────────────────┤
 │ Recursos:                                                                            │
-│ • aws_lambda_function (imagem container do ECR)                                     │
-│   - Variáveis de ambiente: OPENAI_API_KEY, S3_BUCKET_NAME, SQS_QUEUE_URL            │
+│ • aws_lambda_function (imagem container do ECR, SEM VPC)                            │
+│   - Variáveis: OPENAI_API_KEY, S3_BUCKET_NAME, SQS_QUEUE_URL, BACKEND_URL           │
 │ • aws_lambda_event_source_mapping (SQS → Lambda trigger)                            │
 ├─────────────────────────────────────────────────────────────────────────────────────┤
 │ Outputs:                                                                             │
@@ -119,7 +120,7 @@
 ┌──────────────────┐     ┌──────────────────┐     ┌──────────────────┐
 │   SISTEMA        │     │   FILA SQS       │     │     FUNÇÃO       │
 │   EXTERNO        │────▶│   FIFO           │────▶│     LAMBDA       │
-│   (envia job)    │     │                  │     │                  │
+│   (envia job)    │     │                  │     │  (SEM VPC)       │
 └──────────────────┘     │  gcb-ai-agent-   │     │  gcb-ai-agent-   │
                          │  queue-{env}     │     │  lambda-{env}    │
                          │  .fifo           │     │                  │
@@ -137,14 +138,17 @@
                                                   │    recortes      │
                                                   └────────┬─────────┘
                                                            │
-                                                           │ 4. Chama endpoint
-                                                           │    externo
-                                                           ▼
-                                                  ┌──────────────────┐
-                                                  │ API EXTERNA      │
-                                                  │ (callback de     │
-                                                  │  notificação)    │
-                                                  └──────────────────┘
+                    ┌──────────────────────────────────────┤
+                    │                                      │
+                    │ 4. Notifica backend                  │ 5. Chama OpenAI
+                    │    via BACKEND_URL                   │    para extração
+                    ▼                                      ▼
+           ┌──────────────────┐                   ┌──────────────────┐
+           │   BACKEND        │                   │   OPENAI API     │
+           │   (ALB público)  │                   │                  │
+           │                  │                   │  api.openai.com  │
+           │  Callback HTTP   │                   │                  │
+           └──────────────────┘                   └──────────────────┘
 ```
 
 ---
@@ -215,11 +219,43 @@
 
 | Variável | Origem | Descrição |
 |----------|--------|-----------|
-| `OPENAI_API_KEY` | tfvars (sensível) | Chave de API da OpenAI |
-| `S3_BUCKET_NAME` | tfvars | Bucket S3 de destino |
-| `S3_ENDPOINT` | tfvars | URL do endpoint S3 |
-| `SQS_QUEUE_URL` | Output do módulo SQS | URL da fila para polling |
-| `PYTHONUNBUFFERED` | hardcoded | Buffering de output Python |
+| `OPENAI_API_KEY` | tfvars (sensível) | Chave de API da OpenAI para processamento com IA |
+| `S3_BUCKET_NAME` | tfvars | Bucket S3 para armazenamento de PDFs e resultados |
+| `S3_ENDPOINT` | tfvars | URL do endpoint S3 regional |
+| `SQS_QUEUE_URL` | Output do módulo SQS | URL da fila para polling de mensagens |
+| `BACKEND_URL` | tfvars | URL do ALB do backend para callbacks HTTP |
+| `PYTHONUNBUFFERED` | hardcoded | Desabilita buffering de output Python |
+
+---
+
+## Configuração de Rede
+
+### Lambda Fora da VPC
+
+A função Lambda está configurada **fora da VPC** por design. Esta decisão arquitetural oferece:
+
+1. **Custo Zero** - Não requer NAT Gateway ou outros recursos de rede
+2. **Acesso Nativo à Internet** - Lambda pode acessar serviços externos diretamente
+3. **Simplicidade** - Sem configuração de subnets, security groups ou route tables
+
+### Fluxo de Comunicação
+
+```
+Lambda (sem VPC) ──HTTPS──▶ ALB (público) ──▶ Backend (privado na VPC)
+       │
+       ├──▶ S3 (upload/download PDFs) - via endpoints públicos da AWS
+       ├──▶ SQS (trigger de mensagens) - via endpoints públicos da AWS  
+       └──▶ OpenAI API (extração de dados) - via internet pública
+```
+
+### Serviços Acessados
+
+| Serviço | Método de Acesso | Endpoint |
+|---------|------------------|----------|
+| S3 | Endpoint público AWS | `https://s3.{region}.amazonaws.com` |
+| SQS | Endpoint público AWS | `https://sqs.{region}.amazonaws.com` |
+| OpenAI | Internet pública | `https://api.openai.com` |
+| Backend | ALB público | Configurado via `BACKEND_URL` |
 
 ---
 
@@ -308,6 +344,8 @@ infra/
 3. **Parâmetros SSM** - URLs das filas armazenadas para descoberta externa
 4. **Filas FIFO** - Garantem processamento ordenado com deduplicação
 5. **DLQ configurada** - Mensagens falhas após `max_receive_count` vão para fila de dead-letter
+6. **Lambda fora da VPC** - Custo zero, acesso nativo à internet para chamadas ao backend e OpenAI
+7. **BACKEND_URL** - URL do ALB público do backend para callbacks HTTP após processamento
 
 ---
 

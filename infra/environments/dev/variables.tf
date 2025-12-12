@@ -78,6 +78,13 @@ variable "lambda_memory_size" {
   default     = 3008
 }
 
+# ------------------- Backend Configuration -------------------
+variable "backend_url" {
+  type        = string
+  description = "URL of the backend ALB for HTTP callbacks"
+  default     = ""
+}
+
 # ------------------- Secrets (NO DEFAULTS) -------------------
 variable "openai_api_key" {
   type        = string

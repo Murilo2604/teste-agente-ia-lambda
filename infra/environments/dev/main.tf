@@ -85,6 +85,7 @@ module "lambda" {
   s3_bucket_name  = var.s3_bucket_name
   s3_endpoint     = var.s3_endpoint
   openai_api_key  = var.openai_api_key
+  backend_url     = var.backend_url
   timeout         = var.lambda_timeout
   memory_size     = var.lambda_memory_size
 
