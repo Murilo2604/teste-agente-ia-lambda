@@ -33,8 +33,13 @@ resource "aws_sqs_queue" "dlq" {
 resource "aws_sqs_queue" "main" {
   name                        = local.queue_name
   fifo_queue                  = true
-  delay_seconds               = var.delay_seconds
+  delay_seconds               = 10
+  visibility_timeout_seconds  = 960  # 16 minutes (slightly more than Lambda timeout of 15 minutes)
   content_based_deduplication = true
+  redrive_policy = jsonencode({
+    deadLetterTargetArn = aws_sqs_queue.gcb_ai_agent_sqs_dlq_fifo_queue.arn
+    maxReceiveCount     = 2
+  })
 
   # Visibility timeout should be >= Lambda timeout
   visibility_timeout_seconds = var.visibility_timeout_seconds

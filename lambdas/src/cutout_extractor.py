@@ -48,6 +48,17 @@ class CutoutExtractor:
         self.chunks = chunks or []
         
         cutout_paths = {}
+
+        def dedupe_sources(sources):
+            seen = set()
+            filtered = []
+            for source in sources or []:
+                key = (source.get('field'), source.get('chunk_id'))
+                if key in seen:
+                    continue
+                seen.add(key)
+                filtered.append(source)
+            return filtered
         
         # Handle new array structure
         if isinstance(extraction_result, list):
@@ -58,7 +69,7 @@ class CutoutExtractor:
         
         # Process each unit
         for unit_idx, unit_data in enumerate(units_data):
-            sources = unit_data.get('sources', [])
+            sources = dedupe_sources(unit_data.get('sources', []))
             print(f"Processing unit {unit_idx + 1} with {len(sources)} sources")
             
             for source in sources:
@@ -66,7 +77,12 @@ class CutoutExtractor:
                 chunk_id = source.get('chunk_id')
                 
                 # Skip if no required data
-                if not field or not chunk_id:
+                if not field:
+                    print(f"⚠️  Source missing field name for unit {unit_idx + 1}; skipping cutout")
+                    continue
+                if not chunk_id:
+                    print(f"⚠️  Source '{field}' missing chunk_id for unit {unit_idx + 1}; skipping cutout")
+                    continue
                     continue
                 
                 # Find the chunk to get page and bbox information

@@ -212,6 +212,22 @@ class S3Provider:
                 # If it's a different error, re-raise
                 raise
     
+    def prefix_exists(self, bucket_name: str, prefix: str) -> bool:
+        """
+        Check if any object exists under the given prefix.
+        Returns True if at least one object is found, otherwise False.
+        """
+        try:
+            response = self.s3_client.list_objects_v2(
+                Bucket=bucket_name,
+                Prefix=prefix,
+                MaxKeys=1,
+            )
+            return bool(response.get('Contents'))
+        except ClientError as e:
+            logger.error(f"❌ Failed to list objects for prefix '{prefix}' in bucket '{bucket_name}': {e}")
+            return False
+    
     def download_file(self, bucket_name: str, key: str) -> BytesIO:
         """
         Download a file from S3 and return a BytesIO buffer.
