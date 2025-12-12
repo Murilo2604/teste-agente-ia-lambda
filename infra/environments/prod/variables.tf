@@ -1,119 +1,87 @@
+# ================================================================================
+# GCB AI Agent - Prod Environment Variables
+# ================================================================================
+# All values should be provided via terraform.tfvars or environment variables.
+# No hardcoded defaults for sensitive or environment-specific values.
+# ================================================================================
+
+# ------------------- AWS Configuration -------------------
 variable "aws_region" {
   type        = string
-  description = "AWS region"
+  description = "AWS region for deployment"
   default     = "us-east-1"
 }
 
-# ------------------- AWS ACCESS KEY ID -------------------
-variable "aws_access_key_id" {
-  type        = string
-  description = "AWS access key ID"
-}
-
-# ------------------- AWS SECRET ACCESS KEY -------------------
-variable "aws_secret_access_key" {
-  type        = string
-  description = "AWS secret access key"
-}
-
-# ------------------- ENVIRONMENT -------------------
+# ------------------- Environment -------------------
 variable "environment" {
   type        = string
-  description = "Environment"
+  description = "Environment name (dev, staging, prod)"
   default     = "prod"
 }
 
-# ------------------- ROLE -------------------
-variable "gcb_ai_agent_role_arn" {
+# ------------------- Naming -------------------
+variable "name_prefix" {
   type        = string
-  description = "ARN of the GCB AI Agent role"
-}
-
-variable "gcb_ai_agent_lambda_role_arn" {
-  type        = string
-  description = "ARN of the Lambda role"
-}
-
-# ------------------- LAMBDA -------------------
-variable "gcb_ai_agent_lambda_role_name" {
-  type        = string
-  description = "Name of the Lambda role"
-}
-
-variable "gcb_ai_agent_lambda_function_name" {
-  type        = string
-  description = "Name of the Lambda function"
-}
-
-# ------------------- SQS -------------------
-variable "gcb_ai_agent_sqs_fifo_queue_name" {
-  type        = string
-  description = "Name of the SQS FIFO queue"
-}
-
-variable "gcb_ai_agent_sqs_dlq_queue_fifo_name" {
-  type        = string
-  description = "Name of the SQS deadletter FIFO queue"
-}
-
-# ------------------- SQS SSM PARAMETERS -------------------
-variable "gcb_ai_agent_sqs_fifo_queue_ssm_name" {
-  type        = string
-  description = "Name of the SQS FIFO queue SSM"
-}
-
-variable "gcb_ai_agent_sqs_fifo_queue_ssm" {
-  type        = string
-  description = "Name of the SQS FIFO queue SSM"
-}
-
-variable "gcb_ai_agent_sqs_dlq_queue_fifo_ssm_name" {
-  type        = string
-  description = "Name of the SQS deadletter FIFO queue SSM"
-}
-
-variable "gcb_ai_agent_sqs_dlq_queue_fifo_ssm" {
-  type        = string
-  description = "Name of the SQS deadletter FIFO queue SSM"
-}
-
-# ------------------- ECR -------------------
-variable "gcb_ai_agent_ecr_repository_name" {
-  type        = string
-  description = "Name of the ECR repository"
+  description = "Prefix for naming all resources"
   default     = "gcb-ai-agent"
 }
 
-variable "ecr_principal_arns" {
-  type        = list(string)
-  description = "List of ARNs that can push/pull images from ECR"
-  default     = []
-}
-
-variable "gcb_ai_agent_ecr_image_uri" {
+# ------------------- ECR / Docker Image -------------------
+variable "image_tag" {
   type        = string
-  description = "URI of the ECR image"
+  description = "Docker image tag (managed by CI/CD)"
+  default     = "latest"
 }
 
-# ------------------- LAMBDA ENVIRONMENT VARIABLES -------------------
-variable "openai_api_key" {
-  type        = string
-  description = "OpenAI API key"
-  sensitive   = true
-}
-
+# ------------------- S3 Configuration -------------------
 variable "s3_bucket_name" {
   type        = string
-  description = "S3 bucket name"
-}
-
-variable "sns_topic_arn" {
-  type        = string
-  description = "SNS topic ARN"
+  description = "Name of the existing S3 bucket for PDFs and results"
+  # No default - must be provided
 }
 
 variable "s3_endpoint" {
   type        = string
-  description = "S3 endpoint"
-  default     = "https://s3.us-east-1.amazonaws.com"
+  description = "S3 endpoint URL"
+  default     = "https://s3.amazonaws.com"
+}
+
+# ------------------- SQS Configuration -------------------
+variable "sqs_delay_seconds" {
+  type        = number
+  description = "Delay in seconds before SQS messages become available"
+  default     = 10
+}
+
+variable "sqs_visibility_timeout_seconds" {
+  type        = number
+  description = "SQS visibility timeout (should be >= Lambda timeout)"
+  default     = 900
+}
+
+variable "sqs_max_receive_count" {
+  type        = number
+  description = "Number of receives before message goes to DLQ"
+  default     = 4
+}
+
+# ------------------- Lambda Configuration -------------------
+variable "lambda_timeout" {
+  type        = number
+  description = "Lambda function timeout in seconds"
+  default     = 900
+}
+
+variable "lambda_memory_size" {
+  type        = number
+  description = "Lambda function memory in MB"
+  default     = 3008
+}
+
+# ------------------- Secrets (NO DEFAULTS) -------------------
+variable "openai_api_key" {
+  type        = string
+  description = "OpenAI API key for AI processing"
+  sensitive   = true
+  # No default - must be provided via tfvars or environment
 }

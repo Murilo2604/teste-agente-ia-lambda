@@ -1,36 +1,41 @@
 # ================================================================================
-# Outputs do Módulo ECR - Repositório Existente
+# ECR Module Outputs - GCB AI Agent
 # ================================================================================
 
-# Output da URI da imagem ECR (passthrough da variável de entrada)
-output "gcb_ai_agent_ecr_image_uri" {
-  value       = var.gcb_ai_agent_ecr_image_uri
-  description = "URI completa da imagem Docker no ECR (ex: 123456789012.dkr.ecr.us-east-1.amazonaws.com/repo:tag)"
+# ------------------- Repository Information -------------------
+output "repository_url" {
+  value       = aws_ecr_repository.main.repository_url
+  description = "URL of the ECR repository"
 }
 
-# Output da URL do repositório (extraída da URI)
-output "gcb_ai_agent_ecr_repository_url" {
-  value       = split(":", var.gcb_ai_agent_ecr_image_uri)[0]
-  description = "URL do repositório ECR sem a tag (ex: 123456789012.dkr.ecr.us-east-1.amazonaws.com/repo)"
+output "repository_arn" {
+  value       = aws_ecr_repository.main.arn
+  description = "ARN of the ECR repository"
 }
 
-# Output do nome do repositório (extraído da URI)
-output "gcb_ai_agent_ecr_repository_name" {
-  value = length(var.gcb_ai_agent_ecr_repository_name) > 0 ? var.gcb_ai_agent_ecr_repository_name : (
-    split("/", split(":", var.gcb_ai_agent_ecr_image_uri)[0])[1]
-  )
-  description = "Nome do repositório ECR"
+output "repository_name" {
+  value       = aws_ecr_repository.main.name
+  description = "Name of the ECR repository"
 }
 
-# Output do registry (account ID e região)
-output "gcb_ai_agent_ecr_registry" {
-  value       = split("/", var.gcb_ai_agent_ecr_image_uri)[0]
-  description = "Registry do ECR (ex: 123456789012.dkr.ecr.us-east-1.amazonaws.com)"
+output "registry_id" {
+  value       = aws_ecr_repository.main.registry_id
+  description = "Registry ID (AWS Account ID)"
 }
 
-# Output da tag da imagem
-output "gcb_ai_agent_ecr_image_tag" {
-  value       = split(":", var.gcb_ai_agent_ecr_image_uri)[1]
-  description = "Tag da imagem Docker (ex: latest, v1.0.0)"
+# ------------------- Image URI (for Lambda) -------------------
+output "image_uri" {
+  value       = "${aws_ecr_repository.main.repository_url}:${var.image_tag}"
+  description = "Full image URI with tag (use this for Lambda function)"
 }
 
+# ------------------- AWS Context -------------------
+output "aws_account_id" {
+  value       = data.aws_caller_identity.current.account_id
+  description = "AWS Account ID"
+}
+
+output "aws_region" {
+  value       = data.aws_region.current.name
+  description = "AWS Region"
+}
